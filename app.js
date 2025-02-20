@@ -243,7 +243,7 @@
       message: 'Sesión activa',  
       session: {  
         ...sessionItem, 
-        lastActivity: lastActivityIn, 
+        lastActivity: lastActivityInTime, 
         lastAccessed: lastAccessedInTime, // Enviar la fecha en la zona local  
         createdAt: createdAtInTime, // Enviar la fecha en la zona local  
         updatedAt: updatedAtInTime // Ahora se envía la hora correcta
@@ -272,6 +272,7 @@
       const formattedSessions = sessions.map(session => {
         const lastAccessedInTime = moment.utc(session.lastAccessed).tz('America/Mexico_City').format();
         const createdAtInTime = moment.utc(session.createdAt).tz('America/Mexico_City').format();
+        const lastActivityInTime = moment.utc(session.lastActivity).tz('America/Mexico_City').format();
         
         const inactividad = now.diff(moment.utc(session.lastAccessed).tz('America/Mexico_City'), 'minutes');
         const duracion = now.diff(moment.utc(session.createdAt).tz('America/Mexico_City'), 'minutes');
@@ -280,6 +281,7 @@
           ...session.toObject(),
           createdAt: createdAtInTime,
           lastAccessed: lastAccessedInTime,
+          lastActivity: lastActivityInTime,
           inactividad: `${inactividad} minutos`,
           duracion: `${duracion} minutos`
         };
@@ -308,6 +310,7 @@
       const formattedSessions = activeSessions.map(session => {
         const lastAccessedInTime = moment.utc(session.lastAccessed).tz('America/Mexico_City').format();
         const createdAtInTime = moment.utc(session.createdAt).tz('America/Mexico_City').format();
+        const lastActivityInTime = moment.utc(session.lastActivity).tz('America/Mexico_City').format();
         
         const inactividad = now.diff(moment.utc(session.lastAccessed).tz('America/Mexico_City'), 'minutes');
         const duracion = now.diff(moment.utc(session.createdAt).tz('America/Mexico_City'), 'minutes');
@@ -316,6 +319,7 @@
           ...session.toObject(),
           createdAt: createdAtInTime,
           lastAccessed: lastAccessedInTime,
+          lastActivity: lastActivityInTime,
           inactividad: `${inactividad} minutos`,
           duracion: `${duracion} minutos`
         };

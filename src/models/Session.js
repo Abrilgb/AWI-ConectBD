@@ -52,8 +52,8 @@ const SessionSchema = new Schema(
   }
 );
 
-// Embebido en el esquema de usuario
-// Define el esquema de usuario
+
+
 const UserSchema = new Schema(
   {
     user_id: {
