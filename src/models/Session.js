@@ -1,5 +1,6 @@
 import { model, Schema } from "mongoose";
 
+// Definición del esquema para una sesión
 const SessionSchema = new Schema(
   {
     sessionID: {
@@ -18,15 +19,15 @@ const SessionSchema = new Schema(
       type: String,
       required: true,
     },
+    serverIp: {
+      type: String,
+      required: true,
+    },
     createdAt: {
       type: Date,
-      required: true,
-      default: Date.now,
     },
     lastAccessed: {
       type: Date,
-      required: true,
-      default: Date.now,
     },
     serverIp: {
       type: String,
@@ -36,17 +37,39 @@ const SessionSchema = new Schema(
       type: String,
       required: true,
     },
+    lastActivity: {
+      type: Date,
+    },
     status: {
       type: String,
-      required: true,
-      enum: ["Activa", "Finalizada por el Usuario", "Inactiva"],
+      enum: ["Activa", "Finalizada por el Usuario", "Inactiva", "Finalizada por el Servidor"],
       default: "Activa",
     },
   },
   {
-    timestamps: true, // Añade automáticamente createdAt y updatedAt
-    versionKey: false, // Deshabilita el campo __v
+    timestamps: true, 
+    versionKey: false,
   }
 );
 
-export default model("Session", SessionSchema);
+// Embebido en el esquema de usuario
+// Define el esquema de usuario
+const UserSchema = new Schema(
+  {
+    user_id: {
+      type: String,
+      unique: true,
+      required: true,
+    },
+    name: String,
+    email: String,
+    // Arreglo de sesiones
+    sessions: [SessionSchema],// Aqui se embebe el esquema de sesión
+  },
+  {
+    timestamps: true,
+    versionKey: false,
+  }
+);
+
+export default model("User", UserSchema);

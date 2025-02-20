@@ -7,7 +7,8 @@ import macaddress from 'macaddress';
 import moment from 'moment-timezone';
 import mongoose from 'mongoose';
 import forge from 'node-forge';
-import Session from './src/models/Session.js';
+import User from './src/models/Session.js';
+
 const app = express();
 const PORT = 3000;
 
@@ -15,6 +16,7 @@ mongoose.connect('mongodb+srv://aguzm347:yinyer0223Y@yinyer-02.ohjot.mongodb.net
   .then(() => console.log("MongoDB Atlas Connected"))
   .catch(error => console.error(error));
 
+// Generar llaves RSA
 const keypair = forge.pki.rsa.generateKeyPair(600);
 const publicKey = forge.pki.publicKeyToPem(keypair.publicKey);
 const privateKey = forge.pki.privateKeyToPem(keypair.privateKey);
@@ -25,6 +27,7 @@ app.listen(PORT, () => {
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(bodyParser.urlencoded({ extended: true }));
 
 app.use(
   session({
@@ -35,13 +38,15 @@ app.use(
   })
 );
 
+// Ruta de bienvenida
 app.get('/', (req, res) => {
   return res.status(200).json({
-    message: 'Bienvendi@ a la API de Control de Sesiones',
+    message: 'Bienvenid@ a la API de Control de Sesiones',
     author: 'Abril Guzmán Barrera'
   });
 });
 
+// Funciones auxiliares para obtener la IP local y la MAC del servidor
 const getLocalIp = () => {
   const networkInterfaces = os.networkInterfaces();
   for (const interfaceName in networkInterfaces) {
@@ -71,6 +76,7 @@ const encryptData = (data) => {
   return forge.util.encode64(encrypted);
 };
 
+// Ruta de login
 app.post('/login', async (req, res) => {
   const { email, nickname, macAddress } = req.body;
   if (!email || !nickname || !macAddress) {
@@ -79,25 +85,40 @@ app.post('/login', async (req, res) => {
     });
   }
 
-  const sessionID = uuidv4();
-  const createdAt_CDMX = moment().tz('America/Mexico_City').toISOString();
+  const sessionID = uuidv4(); // Genera un identificador único
+  const createdAt_CDMX = moment().tz('America/Mexico_City').format(); // Fecha en la zona de CDMX  
+  const createdAt_UTC = moment(createdAt_CDMX).utc().format(); // Convertimos a UTC  
   const serverIp = encryptData(getLocalIp() || '');
   const serverMac = encryptData(await getServerMac());
   const encryptedMacAddress = encryptData(macAddress);
 
-  const sessionData = new Session({
+  // Buscar al usuario por email, si no existe, lo crea
+  let user = await User.findOne({ email });
+  if (!user) {
+    user = new User({
+      user_id: uuidv4(),
+      name: nickname,
+      email,
+      sessions: []
+    });
+  }
+
+  // Agregar la sesión al arreglo de sesiones del usuario
+  user.sessions.push({
     sessionID,
     email,
     nickname,
     macAddress: encryptedMacAddress,
-    createdAt: createdAt_CDMX,
-    lastAccessed: createdAt_CDMX,
+    serverIp,
+    createdAt: createdAt_UTC, // Guardar en UTC  
+    lastAccessed: createdAt_UTC, // Guardar en UTC  
     serverIp,
     serverMac,
+    lastActivity: createdAt_CDMX,
     status: "Activa"
   });
 
-  await sessionData.save();
+  await user.save();
   req.session.sessionID = sessionID;
 
   res.status(200).json({
@@ -106,6 +127,7 @@ app.post('/login', async (req, res) => {
   });
 });
 
+// Ruta de logout
 app.post('/logout', async (req, res) => {
   const { sessionID } = req.session;
 
@@ -115,7 +137,17 @@ app.post('/logout', async (req, res) => {
     });
   }
 
-  await Session.updateOne({ sessionID }, { status: "Finalizada por el Usuario" });
+  const user = await User.findOne({ "sessions.sessionID": sessionID });
+  if (!user) {
+    return res.status(404).json({ message: 'Usuario no encontrado' });
+  }
+
+  const sessionItem = user.sessions.find(item => item.sessionID === sessionID);
+  if (sessionItem) {
+    sessionItem.status = "Finalizada por el Usuario";
+  }
+
+  await user.save();
   req.session.destroy();
 
   res.status(200).json({
@@ -123,6 +155,7 @@ app.post('/logout', async (req, res) => {
   });
 });
 
+// Ruta para actualizar sesión
 app.post('/update', async (req, res) => {
   const { email, nickname } = req.body;
 
@@ -132,111 +165,171 @@ app.post('/update', async (req, res) => {
     });
   }
 
-  const session = await Session.findOne({ sessionID: req.session.sessionID });
-  if (!session) {
+  const user = await User.findOne({ "sessions.sessionID": req.session.sessionID });
+  if (!user) {
+    return res.status(404).json({ message: 'Usuario no encontrado' });
+  }
+
+  const sessionItem = user.sessions.find(item => item.sessionID === req.session.sessionID);
+  if (!sessionItem) {
     return res.status(404).json({ message: 'Sesión no encontrada' });
   }
 
-  if (email) session.email = email;
-  if (nickname) session.nickname = nickname;
-  session.lastAccessed = moment().tz('America/Mexico_City').toISOString();
+  if (email) sessionItem.email = email;
+  if (nickname) sessionItem.nickname = nickname;
+  sessionItem.lastAccessed = moment().tz('America/Mexico_City').format();
 
-  await session.save();
+  await user.save();
 
   res.status(200).json({
     message: 'Datos actualizados',
-    session
+    session: sessionItem
   });
 });
 
-app.get('/status', async (req, res) => {
-  const { sessionID } = req.session;
+// Ruta para obtener el status de la sesión
+// Ruta para obtener el status de la sesión  
+app.get('/status', async (req, res) => {  
+  const { sessionID } = req.session;  
 
-  if (!sessionID) {
-    return res.status(404).json({
-      message: 'No existe una sesión activa'
-    });
-  }
+  if (!sessionID) {  
+    return res.status(404).json({  
+      message: 'No existe una sesión activa'  
+    });  
+  }  
 
-  const session = await Session.findOne({ sessionID });
-  if (!session) {
-    return res.status(404).json({ message: 'Sesión no encontrada' });
-  }
+  const user = await User.findOne({ "sessions.sessionID": sessionID });  
+  if (!user) {  
+    return res.status(404).json({ message: 'Usuario no encontrado' });  
+  }  
 
-  const now = moment();
-  const inactividad = now.diff(moment(session.lastAccessed), 'minutes');
-  const duracion = now.diff(moment(session.createdAt), 'minutes');
+  const sessionItem = user.sessions.find(item => item.sessionID === sessionID);  
+  if (!sessionItem) {  
+    return res.status(404).json({ message: 'Sesión no encontrada' });  
+  }  
 
-  res.status(200).json({
-    message: 'Sesión activa',
-    session,
-    inactividad: `${inactividad} minutos`,
-    duracion: `${duracion} minutos`
-  });
+  // Convertir a la zona horaria deseada  
+  const lastAccessedInTime = moment.utc(sessionItem.lastAccessed).tz('America/Mexico_City').format();  
+  const createdAtInTime = moment.utc(sessionItem.createdAt).tz('America/Mexico_City').format();  
+
+  const now = moment().tz('America/Mexico_City');  
+  const inactividad = now.diff(lastAccessedInTime, 'minutes');  
+  const duracion = now.diff(createdAtInTime, 'minutes');  
+
+  res.status(200).json({  
+    message: 'Sesión activa',  
+    session: {  
+      ...sessionItem,  
+      lastAccessed: lastAccessedInTime, // Enviar la fecha en la zona local  
+      createdAt: createdAtInTime // Enviar la fecha en la zona local  
+    },  
+    inactividad: `${inactividad} minutos`,  
+    duracion: `${duracion} minutos`  
+  });  
 });
 
+// Ruta para obtener todas las sesiones
 app.get('/allSessions', async (req, res) => {
-  const sessions = await Session.find();
+  try {
+    const users = await User.find();
+    let sessions = [];
 
-  if (sessions.length === 0) {
-    return res.status(404).json({
-      message: 'No hay sesiones'
+    users.forEach(user => {
+      sessions = sessions.concat(user.sessions);
     });
+
+    if (sessions.length === 0) {
+      return res.status(404).json({ message: 'No hay sesiones' });
+    }
+
+    const now = moment().tz('America/Mexico_City');
+    const formattedSessions = sessions.map(session => {
+      const lastAccessedInTime = moment.utc(session.lastAccessed).tz('America/Mexico_City').format();
+      const createdAtInTime = moment.utc(session.createdAt).tz('America/Mexico_City').format();
+      const inactividad = now.diff(moment.utc(session.lastAccessed).tz('America/Mexico_City'), 'minutes');
+
+      return {
+        ...session.toObject(),  // Convertimos a objeto plano
+        createdAt: createdAtInTime, 
+        lastAccessed: lastAccessedInTime,
+        inactividad: `${inactividad} minutos`
+      };
+    });
+
+    res.status(200).json({ message: 'Sesiones activas', sessions: formattedSessions });
+  } catch (error) {
+    res.status(500).json({ message: 'Error al obtener las sesiones', error });
   }
-
-  const now = moment();
-  const formattedSessions = sessions.map(session => {
-    const inactividad = now.diff(moment(session.lastAccessed), 'minutes');
-    return {
-      ...session._doc,
-      createdAt: moment(session.createdAt).tz('America/Mexico_City').toISOString(),
-      lastAccessed: moment(session.lastAccessed).tz('America/Mexico_City').toISOString(),
-      inactividad:` ${inactividad} minutos`
-    };
-  });
-
-  res.status(200).json({
-    message: 'Sesiones activas',
-    sessions: formattedSessions
-  });
 });
 
 app.get('/allCurrentSessions', async (req, res) => {
   try {
-    const activeSessions = await Session.find({ status: "Activa" });
+    const users = await User.find({ "sessions.status": "Activa" });
+
+    let activeSessions = [];
+    users.forEach(user => {
+      activeSessions = activeSessions.concat(user.sessions.filter(session => session.status === "Activa"));
+    });
 
     if (activeSessions.length === 0) {
       return res.status(404).json({ message: 'No hay sesiones activas' });
     }
 
-    const formattedSessions = activeSessions.map(session => ({
-      ...session._doc,
-      createdAt: moment(session.createdAt).tz('America/Mexico_City').toISOString(),
-      lastAccessed: moment(session.lastAccessed).tz('America/Mexico_City').toISOString(),
-    }));
+    const now = moment().tz('America/Mexico_City');
+    const formattedSessions = activeSessions.map(session => {
+      const lastAccessedInTime = moment.utc(session.lastAccessed).tz('America/Mexico_City').format();
+      const createdAtInTime = moment.utc(session.createdAt).tz('America/Mexico_City').format();
+      const inactividad = now.diff(moment.utc(session.lastAccessed).tz('America/Mexico_City'), 'minutes');
+
+      return {
+        ...session.toObject(),
+        createdAt: createdAtInTime,
+        lastAccessed: lastAccessedInTime,
+        inactividad: `${inactividad} minutos`
+      };
+    });
 
     res.status(200).json({ message: 'Sesiones activas', sessions: formattedSessions });
   } catch (error) {
-    res.status(500).json({ message: 'No pueo obtener las sesiones activas ', error });
+    res.status(500).json({ message: 'No se pudo obtener las sesiones activas', error });
   }
 });
 
+
+
+// Ruta para eliminar todas las sesiones (de todos los usuarios)
 app.delete('/deleteAllSessions', async (req, res) => {
   try {
-    await Session.deleteMany({});
-    res.status(200).json({ message: 'las sesiones han sido eliminadas.' });
+    await User.deleteMany({});
+    res.status(200).json({ message: 'Todos los usuarios y sus sesiones han sido eliminados.' });
   } catch (error) {
     res.status(500).json({ message: 'No se pudo eliminar', error });
   }
 });
 
+
+// Intervalo para marcar sesiones inactivas (más de 5 minutos sin actividad) 
 setInterval(async () => {
-  const now = moment();
-  const sessions = await Session.find();
-  for (const session of sessions) {
-    const inactividad = now.diff(moment(session.lastAccessed), 'minutes');
-    if (inactividad > 5) {
-      await Session.updateOne({ sessionID: session.sessionID }, { status: `Inactiva por ${inactividad} minutos` });
+  try {
+    const now = moment().tz('America/Mexico_City');  
+    const users = await User.find();
+
+    for (const user of users) {
+      for (const session of user.sessions) {
+        const lastAccessed = moment(session.lastAccessed).tz('America/Mexico_City');
+        const inactividad = now.diff(lastAccessed, 'minutes');
+
+        if (inactividad > 10 && session.status === "Activa") {
+          session.status = `Inactiva por ${inactividad} minutos`;
+          session.lastAccessed = now.toDate();
+        }
+      }
+
+      // Guardar los cambios en las sesiones del usuario
+      await user.save();
     }
+  } catch (error) {
+    console.error("Error actualizando sesiones inactivas:", error);
   }
 }, 60000);
+
